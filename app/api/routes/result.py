@@ -76,9 +76,9 @@ async def update_result(
                 profit = -prediction.recommended_stake
                 logger.info(f"LOSS: match={match_id}, loss={profit:.2f}")
 
-            # Update CLV with closing odds (CRITICAL: uses bet_side)
-            await CLVTracker.update_closing(
-                db, match_id,
+            # Update CLV with closing odds for this specific prediction
+            await CLVTracker.update_closing_by_prediction(
+                db, prediction.id,
                 result.closing_odds_home,
                 result.closing_odds_draw,
                 result.closing_odds_away,

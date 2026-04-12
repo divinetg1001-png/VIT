@@ -89,10 +89,53 @@ class CLVTracker:
         clv_entry.bet_outcome = actual_outcome
         clv_entry.profit = profit
 
-        await db.commit()
-        await db.refresh(clv_entry)
+        # Remove the commit - let the caller handle transaction management
+        # await db.commit()
+        # await db.refresh(clv_entry)
 
         logger.info(f"CLV for match {match_id}: {clv_entry.clv:.4f} (side={clv_entry.bet_side})")
+
+        return clv_entry
+
+    @staticmethod
+    async def update_closing_by_prediction(
+        db: AsyncSession,
+        prediction_id: int,
+        closing_odds_home: float,
+        closing_odds_draw: float,
+        closing_odds_away: float,
+        actual_outcome: str,
+        profit: float
+    ) -> Optional[CLVEntry]:
+        """Update closing odds and calculate final CLV after match for a specific prediction"""
+        # Find the CLV entry for this prediction
+        result = await db.execute(
+            select(CLVEntry).where(CLVEntry.prediction_id == prediction_id)
+        )
+        clv_entry = result.scalar_one_or_none()
+
+        if not clv_entry:
+            logger.warning(f"No CLV entry found for prediction {prediction_id}")
+            return None
+
+        # CRITICAL FIX: Use correct closing odds based on bet_side
+        if clv_entry.bet_side == "home":
+            closing_odds = closing_odds_home
+        elif clv_entry.bet_side == "draw":
+            closing_odds = closing_odds_draw
+        elif clv_entry.bet_side == "away":
+            closing_odds = closing_odds_away
+        else:
+            logger.warning(f"Unknown bet_side: {clv_entry.bet_side}")
+            closing_odds = closing_odds_home  # Fallback
+
+        # Calculate CLV
+        clv_entry.closing_odds = closing_odds
+        clv_entry.clv = CLVTracker.calculate_clv(clv_entry.entry_odds, closing_odds)
+        clv_entry.bet_outcome = actual_outcome
+        clv_entry.profit = profit
+
+        logger.info(f"CLV for prediction {prediction_id}: {clv_entry.clv:.4f} (side={clv_entry.bet_side})")
 
         return clv_entry
 
