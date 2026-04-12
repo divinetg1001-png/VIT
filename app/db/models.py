@@ -1,5 +1,5 @@
 # app/db/models.py
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, JSON, Index, CheckConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, JSON, Text, Index, CheckConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -159,6 +159,54 @@ class ModelPerformance(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class BankrollState(Base):
+    """Persists bankroll snapshots for recovery across restarts."""
+    __tablename__ = "bankroll_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    initial_balance = Column(Float, default=10000.0)
+    current_balance = Column(Float, default=10000.0)
+    peak_balance = Column(Float, default=10000.0)
+    total_staked = Column(Float, default=0.0)
+    total_profit = Column(Float, default=0.0)
+    total_bets = Column(Integer, default=0)
+    winning_bets = Column(Integer, default=0)
+    losing_bets = Column(Integer, default=0)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class DecisionLog(Base):
+    """Full audit trail of every betting decision made by the system."""
+    __tablename__ = "decision_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    match_id = Column(Integer, nullable=True, index=True)
+    prediction_id = Column(Integer, nullable=True, index=True)
+    decision_type = Column(String, default="bet")
+    stake = Column(Float, nullable=True)
+    odds = Column(Float, nullable=True)
+    edge = Column(Float, nullable=True)
+    reason = Column(String, nullable=True)
+    model_contributions = Column(Text, nullable=True)
+    market_context = Column(Text, nullable=True)
+    bankroll_state = Column(Text, nullable=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Team(Base):
+    """Team registry for cross-source ID mapping and name normalisation."""
+    __tablename__ = "teams"
+
+    id = Column(Integer, primary_key=True, index=True)
+    external_id = Column(String, nullable=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    league = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    short_name = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 # Indexes for performance
 Index('idx_matches_kickoff', Match.kickoff_time)
 Index('idx_matches_status', Match.status)
@@ -169,3 +217,6 @@ Index('idx_clv_bet_side', CLVEntry.bet_side)
 Index('idx_edges_status', Edge.status)
 Index('idx_edges_roi', Edge.roi.desc())
 Index('idx_model_perf_certified', ModelPerformance.certified)
+Index('idx_decision_logs_match', DecisionLog.match_id)
+Index('idx_teams_external_id', Team.external_id)
+Index('idx_teams_name', Team.name)

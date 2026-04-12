@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from app.config import get_env, APP_VERSION
 from app.db.database import engine, Base, get_db, _is_sqlite
+import app.db.models  # noqa: F401 — ensures ALL ORM models are registered with Base before create_all
 from app.api.routes import predict, result, history, admin
 from app.api.routes import training as training_route
 from app.api.routes import analytics as analytics_route
