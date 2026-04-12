@@ -30,6 +30,7 @@ export async function fetchPicks()                { return apiFetch('/history/pi
 export async function clearHistory(apiKey)       { return apiFetch('/history/clear-all', { method: 'DELETE' }) }
 export async function predictMatch(matchData)     { return apiFetch('/predict', { method: 'POST', body: JSON.stringify(matchData) }) }
 export async function fetchAdminFixtures(apiKey, count=10) { return apiFetch(`/admin/fixtures?api_key=${encodeURIComponent(apiKey)}&count=${count}`) }
+export async function fetchFixturesByDate(apiKey, date, count=25) { return apiFetch(`/admin/fixtures/by-date?api_key=${encodeURIComponent(apiKey)}&date=${encodeURIComponent(date)}&count=${count}`) }
 
 // ── v2.2.0 — Model Management ─────────────────────────────────────────
 export async function fetchModelStatus(apiKey) {

@@ -8,6 +8,7 @@
 - FastAPI with async SQLAlchemy + SQLite (via aiosqlite; PostgreSQL in production via `DATABASE_URL`)
 - 12-model ML ensemble for match outcome prediction
 - Routes: `/predict`, `/history`, `/results`, `/admin`, `/training`, `/analytics`, `/odds`
+- `GET /admin/fixtures/by-date?date=YYYY-MM-DD` — fetch real fixtures for a specific calendar day
 - Entry point: `main.py`
 - Config: `app/config.py` (single source of truth for version, constants, and env-driven settings)
 

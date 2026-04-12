@@ -10,6 +10,7 @@ import {
   uploadCSVFixtures,
   uploadModelWeights,
   clearHistory,
+  fetchFixturesByDate,
   API_KEY,
 } from './api'
 
@@ -143,6 +144,12 @@ export default function AdminPanel({ apiKey }) {
   const [historyClearing, setHistoryClearing] = useState(false)
   const [historyMessage, setHistoryMessage]   = useState('')
 
+  // Fixture fetcher by date
+  const [fixDate, setFixDate]           = useState(null)
+  const [fixtures, setFixtures]         = useState(null)
+  const [fixturesLoading, setFixLoad]   = useState(false)
+  const [fixturesError, setFixError]    = useState('')
+
   // Streaming predictions (existing)
   const [status, setStatus]         = useState('idle')
   const [log, setLog]               = useState([])
@@ -181,6 +188,15 @@ export default function AdminPanel({ apiKey }) {
     setSL(true)
     try { setSources(await fetchDataSourceStatus(key)) } catch (e) { console.error(e) }
     finally { setSL(false) }
+  }
+
+  async function fetchForDate(dateStr) {
+    setFixDate(dateStr); setFixLoad(true); setFixError(''); setFixtures(null)
+    try {
+      const r = await fetchFixturesByDate(key, dateStr)
+      setFixtures(r)
+    } catch (e) { setFixError(e.message) }
+    finally { setFixLoad(false) }
   }
 
   function updateManual(k, v) { setManualForm(f => ({ ...f, [k]: v })) }
@@ -259,8 +275,110 @@ export default function AdminPanel({ apiKey }) {
   const readyCount = models?.ready ?? '…'
   const totalCount = models?.total ?? '—'
 
+  const DAY_BUTTONS = Array.from({ length: 8 }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() + i)
+    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow'
+      : d.toLocaleDateString('en-GB', { weekday: 'short' })
+    const dateStr = d.toISOString().slice(0, 10)
+    const shortDate = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    return { label, shortDate, dateStr }
+  })
+
+  const LEAGUE_LABELS = {
+    premier_league: 'Premier League', la_liga: 'La Liga',
+    bundesliga: 'Bundesliga', serie_a: 'Serie A', ligue_1: 'Ligue 1',
+    championship: 'Championship', eredivisie: 'Eredivisie',
+    primeira_liga: 'Primeira Liga', scottish_premiership: 'Scottish Prem',
+    belgian_pro_league: 'Belgian Pro',
+  }
+
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+
+      {/* ── Fixture Fetcher by Date ───────────────────────────────── */}
+      <div style={card}>
+        <h3 style={sectionTitle}>📅 Fetch Fixtures by Day</h3>
+        <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: -8, marginBottom: 14 }}>
+          Select a day to load scheduled fixtures from the Football-Data API.
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+          {DAY_BUTTONS.map(({ label, shortDate, dateStr }) => {
+            const isActive = fixDate === dateStr
+            return (
+              <button
+                key={dateStr}
+                onClick={() => fetchForDate(dateStr)}
+                disabled={fixturesLoading}
+                style={{
+                  padding: '7px 14px', borderRadius: 8, border: '1px solid',
+                  borderColor: isActive ? '#6366f1' : '#e2e8f0',
+                  background: isActive ? '#eef2ff' : '#f8fafc',
+                  color: isActive ? '#4338ca' : '#475569',
+                  fontWeight: isActive ? 700 : 500,
+                  fontSize: '0.82rem', cursor: 'pointer', lineHeight: 1.3,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                }}
+              >
+                <span>{label}</span>
+                <span style={{ fontSize: '0.72rem', opacity: 0.75 }}>{shortDate}</span>
+              </button>
+            )
+          })}
+          {fixturesLoading && (
+            <span style={{ alignSelf: 'center', color: '#0ea5e9', fontSize: '0.85rem' }}>Loading…</span>
+          )}
+        </div>
+
+        {fixturesError && (
+          <div style={{ padding: '8px 12px', background: '#fee2e2', borderRadius: 8, color: '#b91c1c', fontSize: '0.85rem', marginBottom: 12 }}>
+            ⚠ {fixturesError}
+          </div>
+        )}
+
+        {fixtures && !fixturesLoading && (
+          <div>
+            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: 8 }}>
+              {fixtures.total} FIXTURE{fixtures.total !== 1 ? 'S' : ''} — {fixDate}
+            </div>
+            {fixtures.total === 0 ? (
+              <p style={{ color: '#94a3b8', fontSize: '0.88rem', margin: 0 }}>No fixtures found for this day.</p>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                      {['Time', 'Match', 'League', 'Odds (H / D / A)'].map(h => (
+                        <th key={h} style={{ padding: '7px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fixtures.fixtures.map((f, i) => {
+                      const ko = f.kickoff_time ? new Date(f.kickoff_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'
+                      const mo = f.market_odds || {}
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '8px 10px', color: '#64748b', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>{ko}</td>
+                          <td style={{ padding: '8px 10px', fontWeight: 600, fontSize: '0.88rem' }}>
+                            {f.home_team} <span style={{ color: '#94a3b8', fontWeight: 400 }}>vs</span> {f.away_team}
+                          </td>
+                          <td style={{ padding: '8px 10px', color: '#64748b', fontSize: '0.8rem' }}>
+                            {LEAGUE_LABELS[f.league] || f.league}
+                          </td>
+                          <td style={{ padding: '8px 10px', fontSize: '0.82rem', color: '#334155' }}>
+                            {mo.home ? `${mo.home.toFixed(2)} / ${mo.draw?.toFixed(2)} / ${mo.away?.toFixed(2)}` : '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* ── Model Status ─────────────────────────────────────────── */}
       <div style={card}>

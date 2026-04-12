@@ -2,7 +2,7 @@
 // Professional UI: fixed sidebar (desktop) + drawer sidebar (mobile)
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchHealth, fetchHistory, fetchPicks, predictMatch, API_KEY } from './api'
+import { fetchHealth, fetchHistory, fetchPicks, predictMatch, fetchFixturesByDate, API_KEY } from './api'
 import AdminPanel       from './AdminPanel'
 import AccumulatorPanel from './AccumulatorPanel'
 import TrainingPanel    from './TrainingPanel'
@@ -124,6 +124,13 @@ export default function App() {
   const [page, setPage]            = useState(0)
   const [matchId, setMatchId]      = useState(null)
 
+  // Dashboard fixture browser
+  const [dashFixtures, setDashFixtures]       = useState(null)
+  const [dashFixDate, setDashFixDate]         = useState(null)
+  const [dashFixLoading, setDashFixLoading]   = useState(false)
+  const [dashFixError, setDashFixError]       = useState('')
+  const [predictingIdx, setPredictingIdx]     = useState(null)
+
   const PER_PAGE = 10
 
   /* Market odds are fetched from OddsPanel instead of manual entry */
@@ -181,6 +188,40 @@ export default function App() {
   }
 
   function field(k, v) { setForm(f => ({ ...f, [k]: v })) }
+
+  const DASH_DAY_BTNS = Array.from({ length: 8 }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() + i)
+    const label    = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-GB', { weekday: 'short' })
+    const dateStr  = d.toISOString().slice(0, 10)
+    const shortDate = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    return { label, dateStr, shortDate }
+  })
+
+  async function loadDashFixtures(dateStr) {
+    setDashFixDate(dateStr); setDashFixLoading(true); setDashFixError(''); setDashFixtures(null)
+    try { setDashFixtures(await fetchFixturesByDate(API_KEY, dateStr)) }
+    catch (e) { setDashFixError(e.message) }
+    finally { setDashFixLoading(false) }
+  }
+
+  async function predictFixture(fix, idx) {
+    setPredictingIdx(idx); setError(''); setPred(null)
+    try {
+      const res = await predictMatch({
+        home_team:    fix.home_team,
+        away_team:    fix.away_team,
+        league:       fix.league,
+        kickoff_time: fix.kickoff_time || new Date().toISOString(),
+        market_odds:  fix.market_odds || {},
+      })
+      setPred(res)
+      setForm(f => ({ ...f, home_team: fix.home_team, away_team: fix.away_team, league: fix.league }))
+      await loadHistory()
+      if (picks) setPicks(null)
+    } catch (e) { setError(e.message) }
+    finally { setPredictingIdx(null) }
+  }
 
   const paginated = history.slice(page * PER_PAGE, (page + 1) * PER_PAGE)
   const maxPages  = Math.ceil(history.length / PER_PAGE)
@@ -322,6 +363,85 @@ export default function App() {
                     : '—'}
                 </div>
               </div>
+            </div>
+
+            {/* ── Fixtures by day ─────────────────────────────────── */}
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title">📅 Browse Fixtures</div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+                {DASH_DAY_BTNS.map(({ label, dateStr, shortDate }) => {
+                  const isActive = dashFixDate === dateStr
+                  return (
+                    <button
+                      key={dateStr}
+                      className={isActive ? 'btn btn-primary' : 'btn btn-secondary'}
+                      style={{ padding: '6px 13px', fontSize: '0.82rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.25 }}
+                      onClick={() => loadDashFixtures(dateStr)}
+                      disabled={dashFixLoading}
+                    >
+                      <span>{label}</span>
+                      <span style={{ fontSize: '0.7rem', opacity: 0.78 }}>{shortDate}</span>
+                    </button>
+                  )
+                })}
+                {dashFixLoading && <span style={{ alignSelf: 'center', color: '#0ea5e9', fontSize: '0.85rem' }}>Loading…</span>}
+              </div>
+
+              {dashFixError && (
+                <div className="alert alert-error" style={{ marginBottom: 12 }}>⚠️ {dashFixError}</div>
+              )}
+
+              {dashFixtures && !dashFixLoading && (
+                <>
+                  {dashFixtures.total === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '0.88rem', margin: 0 }}>No fixtures found for {dashFixDate}.</p>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      {dashFixtures.fixtures.map((fix, idx) => {
+                        const ko = fix.kickoff_time
+                          ? new Date(fix.kickoff_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                          : '—'
+                        const leagueLabel = fix.league?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || '—'
+                        const mo = fix.market_odds || {}
+                        const isPredicting = predictingIdx === idx
+                        return (
+                          <div key={idx} style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            gap: 12, padding: '10px 14px', background: '#f8fafc',
+                            border: '1px solid #e2e8f0', borderRadius: 10, flexWrap: 'wrap',
+                          }}>
+                            <div style={{ flex: 1, minWidth: 160 }}>
+                              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0f172a' }}>
+                                {fix.home_team} <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: '0.8rem' }}>vs</span> {fix.away_team}
+                              </div>
+                              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 2 }}>
+                                {leagueLabel} · {ko}
+                                {mo.home ? <span style={{ marginLeft: 8, color: '#334155' }}>{mo.home.toFixed(2)} / {mo.draw?.toFixed(2)} / {mo.away?.toFixed(2)}</span> : null}
+                              </div>
+                            </div>
+                            <button
+                              className="btn btn-primary"
+                              style={{ fontSize: '0.82rem', padding: '6px 16px', whiteSpace: 'nowrap' }}
+                              onClick={() => predictFixture(fix, idx)}
+                              disabled={isPredicting || loading}
+                            >
+                              {isPredicting ? '⟳ Running…' : '🔮 Predict'}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {!dashFixtures && !dashFixLoading && (
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>
+                  Select a day above to load scheduled fixtures and predict any match with one click.
+                </p>
+              )}
             </div>
 
             {/* Prediction card */}

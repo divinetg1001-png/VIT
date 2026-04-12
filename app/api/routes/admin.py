@@ -690,12 +690,16 @@ async def send_accumulator_to_telegram(body: SendAccumulatorRequest, api_key: st
 # EXISTING ENDPOINTS — preserved from v2.0
 # ======================================================================
 
-async def _fetch_fixtures(count: int) -> list:
+async def _fetch_fixtures(count: int, target_date: Optional[str] = None) -> list:
     football_key = os.getenv("FOOTBALL_DATA_API_KEY", "")
     odds_key     = os.getenv("ODDS_API_KEY", "") or os.getenv("THE_ODDS_API_KEY", "")
     now          = datetime.now(timezone.utc)
-    date_from    = now.strftime("%Y-%m-%d")
-    date_to      = (now + timedelta(days=7)).strftime("%Y-%m-%d")
+    if target_date:
+        date_from = target_date
+        date_to   = target_date
+    else:
+        date_from = now.strftime("%Y-%m-%d")
+        date_to   = (now + timedelta(days=7)).strftime("%Y-%m-%d")
     fixtures     = []
 
     async with httpx.AsyncClient(timeout=20) as client:
@@ -807,6 +811,22 @@ async def get_fixtures(api_key: str = Query(...), count: int = Query(default=10,
     _verify_key(api_key)
     fixtures = await _fetch_fixtures(count)
     return {"fixtures": fixtures, "total": len(fixtures)}
+
+
+@router.get("/fixtures/by-date")
+async def get_fixtures_by_date(
+    api_key: str = Query(...),
+    date: str = Query(..., description="Target date in YYYY-MM-DD format"),
+    count: int = Query(default=25, le=50),
+):
+    """Return fixtures for a specific calendar date."""
+    _verify_key(api_key)
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="date must be in YYYY-MM-DD format")
+    fixtures = await _fetch_fixtures(count, target_date=date)
+    return {"date": date, "fixtures": fixtures, "total": len(fixtures)}
 
 
 @router.get("/stream-predictions")
