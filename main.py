@@ -16,6 +16,7 @@ from app.config import get_env, APP_VERSION
 from app.db.database import engine, Base, get_db, _is_sqlite
 import app.db.models  # noqa: F401 — ensures ALL ORM models are registered with Base before create_all
 from app.api.routes import predict, result, history, admin
+from app.api.routes import ai_feed
 from app.api.routes import training as training_route
 from app.api.routes import analytics as analytics_route
 from app.api.routes import odds_compare as odds_route
@@ -145,6 +146,7 @@ app.include_router(admin.router)
 app.include_router(training_route.router)
 app.include_router(analytics_route.router)
 app.include_router(odds_route.router)
+app.include_router(ai_feed.router)
 
 
 @app.middleware("http")
