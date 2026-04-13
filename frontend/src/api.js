@@ -102,6 +102,15 @@ export async function sendAccumulatorToTelegram(apiKey, accumulator, channelNote
   })
 }
 
+// ── Results Settlement & Live Fixtures ───────────────────────────────
+export async function settleResults(apiKey, daysBack = 2) {
+  return apiFetch(`/admin/settle-results?api_key=${encodeURIComponent(apiKey)}&days_back=${daysBack}`, { method: 'POST' })
+}
+
+export async function fetchLiveFixtures(apiKey) {
+  return apiFetch(`/admin/fixtures/live?api_key=${encodeURIComponent(apiKey)}`)
+}
+
 // ── API Key Management ────────────────────────────────────────────────
 export async function fetchApiKeys(apiKey) {
   return apiFetch(`/admin/api-keys?api_key=${encodeURIComponent(apiKey)}`)

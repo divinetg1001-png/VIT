@@ -13,6 +13,7 @@ import {
   fetchFixturesByDate,
   fetchApiKeys,
   updateApiKey,
+  settleResults,
   API_KEY,
 } from './api'
 

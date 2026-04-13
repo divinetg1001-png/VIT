@@ -35,6 +35,7 @@ from sqlalchemy import select
 from app.config import get_env, APP_VERSION
 from app.services.market_utils import MarketUtils
 from app.core.dependencies import get_orchestrator, get_telegram_alerts
+from app.services.results_settler import settle_results, fetch_live_matches
 
 logger = logging.getLogger(__name__)
 
@@ -975,6 +976,40 @@ async def get_fixtures_by_date(
         raise HTTPException(status_code=422, detail="date must be in YYYY-MM-DD format")
     fixtures = await _fetch_fixtures(count, target_date=date)
     return {"date": date, "fixtures": fixtures, "total": len(fixtures)}
+
+
+@router.post("/settle-results")
+async def settle_past_results(
+    api_key: str = Query(...),
+    days_back: int = Query(default=2, ge=1, le=7),
+):
+    """
+    Scan Football-Data.org for FINISHED matches over the last `days_back` days,
+    match them against unsettled DB predictions, and settle them with
+    actual scores + CLV calculation.
+    """
+    _verify_key(api_key)
+    try:
+        result = await settle_results(days_back=days_back)
+        return result
+    except Exception as e:
+        logger.error(f"Auto-settlement failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/fixtures/live")
+async def get_live_fixtures(api_key: str = Query(...)):
+    """
+    Return all currently IN_PLAY matches from Football-Data.org.
+    Used by the dashboard Live Now section.
+    """
+    _verify_key(api_key)
+    try:
+        live = await fetch_live_matches()
+        return {"fixtures": live, "total": len(live)}
+    except Exception as e:
+        logger.error(f"Live fixture fetch failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/stream-predictions")
