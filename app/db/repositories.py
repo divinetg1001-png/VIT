@@ -4,7 +4,7 @@ from sqlalchemy import select, update, delete, func
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from app.db.models import Match, Prediction, CLVEntry, Edge, ModelPerformance
+from app.db.models import Match, Prediction, CLVEntry, Edge, ModelPerformance, AIPrediction, AIPerformance, AISignalCache
 
 
 class MatchRepository:
@@ -227,3 +227,139 @@ class EdgeRepository:
         )
         await self.db.flush()
         return await self.get_by_id(edge_id)
+
+
+class AIPredictionRepository:
+    """Data access layer for AI predictions"""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def create(self, **kwargs) -> AIPrediction:
+        """Create a new AI prediction"""
+        prediction = AIPrediction(**kwargs)
+        self.db.add(prediction)
+        await self.db.flush()
+        return prediction
+
+    async def get_by_match_and_source(self, match_id: int, source: str) -> Optional[AIPrediction]:
+        """Get AI prediction by match and source"""
+        result = await self.db.execute(
+            select(AIPrediction)
+            .where(AIPrediction.match_id == match_id)
+            .where(AIPrediction.source == source)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_match(self, match_id: int) -> List[AIPrediction]:
+        """Get all AI predictions for a match"""
+        result = await self.db.execute(
+            select(AIPrediction).where(AIPrediction.match_id == match_id)
+        )
+        return result.scalars().all()
+
+    async def get_by_source(self, source: str, limit: int = 100) -> List[AIPrediction]:
+        """Get AI predictions by source"""
+        result = await self.db.execute(
+            select(AIPrediction)
+            .where(AIPrediction.source == source)
+            .order_by(AIPrediction.timestamp.desc())
+            .limit(limit)
+        )
+        return result.scalars().all()
+
+    async def update_performance(self, prediction_id: int, was_correct: bool, calibration_error: float):
+        """Update performance metrics for a prediction"""
+        await self.db.execute(
+            update(AIPrediction)
+            .where(AIPrediction.id == prediction_id)
+            .values(
+                was_correct=was_correct,
+                calibration_error=calibration_error
+            )
+        )
+        await self.db.flush()
+
+
+class AIPerformanceRepository:
+    """Data access layer for AI performance tracking"""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_or_create(self, source: str) -> AIPerformance:
+        """Get or create performance record for source"""
+        result = await self.db.execute(
+            select(AIPerformance).where(AIPerformance.source == source)
+        )
+        perf = result.scalar_one_or_none()
+
+        if not perf:
+            perf = AIPerformance(source=source)
+            self.db.add(perf)
+            await self.db.flush()
+
+        return perf
+
+    async def update_metrics(self, source: str, accuracy: float, calibration_score: float, sample_size: int):
+        """Update performance metrics"""
+        perf = await self.get_or_create(source)
+        perf.accuracy = accuracy
+        perf.calibration_score = calibration_score
+        perf.sample_size = sample_size
+        perf.total_predictions += sample_size
+        perf.last_updated = datetime.utcnow()
+        await self.db.flush()
+
+    async def get_all(self) -> List[AIPerformance]:
+        """Get all AI performance records"""
+        result = await self.db.execute(select(AIPerformance))
+        return result.scalars().all()
+
+    async def update_weight(self, source: str, new_weight: float):
+        """Update dynamic weight for source"""
+        await self.db.execute(
+            update(AIPerformance)
+            .where(AIPerformance.source == source)
+            .values(current_weight=new_weight, last_updated=datetime.utcnow())
+        )
+        await self.db.flush()
+
+
+class AISignalCacheRepository:
+    """Data access layer for AI signal cache"""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_by_match(self, match_id: int) -> Optional[AISignalCache]:
+        """Get cached signals for a match"""
+        result = await self.db.execute(
+            select(AISignalCache).where(AISignalCache.match_id == match_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def create_or_update(self, match_id: int, **signals) -> AISignalCache:
+        """Create or update signal cache for a match"""
+        cache = await self.get_by_match(match_id)
+
+        if cache:
+            # Update existing
+            for key, value in signals.items():
+                if hasattr(cache, key):
+                    setattr(cache, key, value)
+            cache.timestamp = datetime.utcnow()
+        else:
+            # Create new
+            cache = AISignalCache(match_id=match_id, **signals)
+            self.db.add(cache)
+
+        await self.db.flush()
+        return cache
+
+    async def get_multiple(self, match_ids: List[int]) -> List[AISignalCache]:
+        """Get cached signals for multiple matches"""
+        result = await self.db.execute(
+            select(AISignalCache).where(AISignalCache.match_id.in_(match_ids))
+        )
+        return result.scalars().all()

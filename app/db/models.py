@@ -9,6 +9,7 @@ class Match(Base):
     __tablename__ = "matches"
 
     id = Column(Integer, primary_key=True, index=True)
+    external_id = Column(String, unique=True, nullable=True, index=True)  # For API integration
     home_team = Column(String, nullable=False)
     away_team = Column(String, nullable=False)
     league = Column(String, nullable=False)
@@ -207,6 +208,84 @@ class Team(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class AIPrediction(Base):
+    """Store manually ingested AI predictions"""
+    __tablename__ = "ai_predictions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False)
+    source = Column(String(50), nullable=False)  # chatgpt, gemini, grok, deepseek, perplexity
+    home_prob = Column(Float, nullable=False)
+    draw_prob = Column(Float, nullable=False)
+    away_prob = Column(Float, nullable=False)
+    confidence = Column(Float, default=0.7)
+    reason = Column(String(500), nullable=True)
+    model_version = Column(String(50), default="manual_v1")
+    is_certified = Column(Boolean, default=False)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Performance tracking (filled after match completes)
+    was_correct = Column(Boolean, nullable=True)
+    calibration_error = Column(Float, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_ai_match_source', 'match_id', 'source'),
+        Index('idx_ai_timestamp', 'timestamp'),
+    )
+
+
+class AIPerformance(Base):
+    """Track performance per AI for dynamic weighting"""
+    __tablename__ = "ai_performances"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    source = Column(String(50), unique=True, nullable=False)
+    
+    # Overall metrics
+    accuracy = Column(Float, default=0.0)
+    calibration_score = Column(Float, default=0.0)
+    sample_size = Column(Integer, default=0)
+    
+    # Bias detection
+    bias_home_overrate = Column(Float, default=0.0)   # positive = overrates home
+    bias_draw_overrate = Column(Float, default=0.0)
+    bias_away_overrate = Column(Float, default=0.0)
+    
+    # League-specific (JSON)
+    league_accuracy = Column(JSON, default={})
+    
+    # Dynamic weight
+    current_weight = Column(Float, default=1.0)
+    last_updated = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Metadata
+    total_predictions = Column(Integer, default=0)
+    certified = Column(Boolean, default=False)
+
+
+class AISignalCache(Base):
+    """Pre-computed AI signals for each match (for fast inference)"""
+    __tablename__ = "ai_signal_cache"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id"), unique=True, nullable=False)
+    
+    # Consensus signals
+    consensus_home = Column(Float, nullable=False)
+    consensus_draw = Column(Float, nullable=False)
+    consensus_away = Column(Float, nullable=False)
+    disagreement_score = Column(Float, nullable=False)  # variance
+    max_confidence = Column(Float, nullable=False)
+    weighted_home = Column(Float, nullable=False)
+    weighted_draw = Column(Float, nullable=False)
+    weighted_away = Column(Float, nullable=False)
+    
+    # Per-AI signals (JSON for flexibility)
+    per_ai_predictions = Column(JSON, default={})
+    
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+
 # Indexes for performance
 Index('idx_matches_kickoff', Match.kickoff_time)
 Index('idx_matches_status', Match.status)
@@ -220,3 +299,6 @@ Index('idx_model_perf_certified', ModelPerformance.certified)
 Index('idx_decision_logs_match', DecisionLog.match_id)
 Index('idx_teams_external_id', Team.external_id)
 Index('idx_teams_name', Team.name)
+Index('idx_ai_predictions_match', AIPrediction.match_id)
+Index('idx_ai_predictions_source', AIPrediction.source)
+Index('idx_ai_signal_cache_match', AISignalCache.match_id)

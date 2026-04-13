@@ -53,17 +53,26 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Run migrations in 'online' mode with async engine."""
-    # Use async URL for connection, sync URL for schema generation
-    async_connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    # For SQLite, use sync engine since async drivers can be problematic
+    if "sqlite" in DATABASE_URL:
+        from sqlalchemy import create_engine
+        sync_url = DATABASE_URL.replace("sqlite+aiosqlite", "sqlite")
+        connectable = create_engine(sync_url, poolclass=pool.NullPool)
 
-    async with async_connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
+        with connectable.connect() as connection:
+            do_run_migrations(connection)
+    else:
+        # Use async URL for connection, sync URL for schema generation
+        async_connectable = async_engine_from_config(
+            config.get_section(config.config_ini_section, {}),
+            prefix="sqlalchemy.",
+            poolclass=pool.NullPool,
+        )
 
-    await async_connectable.dispose()
+        async with async_connectable.connect() as connection:
+            await connection.run_sync(do_run_migrations)
+
+        await async_connectable.dispose()
 
 
 def run_migrations_online() -> None:
