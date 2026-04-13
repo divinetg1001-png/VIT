@@ -101,3 +101,15 @@ export async function sendAccumulatorToTelegram(apiKey, accumulator, channelNote
     body: JSON.stringify({ accumulator, channel_note: channelNote }),
   })
 }
+
+// ── API Key Management ────────────────────────────────────────────────
+export async function fetchApiKeys(apiKey) {
+  return apiFetch(`/admin/api-keys?api_key=${encodeURIComponent(apiKey)}`)
+}
+
+export async function updateApiKey(apiKey, keyName, newValue) {
+  return apiFetch(`/admin/api-keys/update?api_key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    body: JSON.stringify({ updates: { [keyName]: newValue } }),
+  })
+}

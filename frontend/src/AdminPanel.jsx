@@ -11,6 +11,8 @@ import {
   uploadModelWeights,
   clearHistory,
   fetchFixturesByDate,
+  fetchApiKeys,
+  updateApiKey,
   API_KEY,
 } from './api'
 
@@ -144,6 +146,13 @@ export default function AdminPanel({ apiKey }) {
   const [historyClearing, setHistoryClearing] = useState(false)
   const [historyMessage, setHistoryMessage]   = useState('')
 
+  // API key management
+  const [apiKeys, setApiKeys]           = useState(null)
+  const [apiKeysLoading, setAKLoading]  = useState(false)
+  const [keyDrafts, setKeyDrafts]       = useState({})     // {KEY_NAME: typed value}
+  const [keySaving, setKeySaving]       = useState({})     // {KEY_NAME: bool}
+  const [keyMessages, setKeyMessages]   = useState({})     // {KEY_NAME: {ok, msg}}
+
   // Fixture fetcher by date
   const [fixDate, setFixDate]           = useState(null)
   const [fixtures, setFixtures]         = useState(null)
@@ -163,6 +172,7 @@ export default function AdminPanel({ apiKey }) {
   useEffect(() => {
     loadModelStatus()
     loadDataSources()
+    loadApiKeys()
     return () => esRef.current?.close()
   }, [])
 
@@ -188,6 +198,33 @@ export default function AdminPanel({ apiKey }) {
     setSL(true)
     try { setSources(await fetchDataSourceStatus(key)) } catch (e) { console.error(e) }
     finally { setSL(false) }
+  }
+
+  async function loadApiKeys() {
+    setAKLoading(true)
+    try { setApiKeys(await fetchApiKeys(key)) } catch (e) { console.error(e) }
+    finally { setAKLoading(false) }
+  }
+
+  async function saveApiKey(keyName) {
+    const newVal = (keyDrafts[keyName] || '').trim()
+    if (!newVal) return
+    setKeySaving(s => ({ ...s, [keyName]: true }))
+    setKeyMessages(m => ({ ...m, [keyName]: null }))
+    try {
+      const r = await updateApiKey(key, keyName, newVal)
+      if (r.errors?.[keyName]) {
+        setKeyMessages(m => ({ ...m, [keyName]: { ok: false, msg: r.errors[keyName] } }))
+      } else {
+        setKeyMessages(m => ({ ...m, [keyName]: { ok: true, msg: 'Saved ✓' } }))
+        setKeyDrafts(d => ({ ...d, [keyName]: '' }))
+        await loadApiKeys()
+      }
+    } catch (e) {
+      setKeyMessages(m => ({ ...m, [keyName]: { ok: false, msg: e.message } }))
+    } finally {
+      setKeySaving(s => ({ ...s, [keyName]: false }))
+    }
   }
 
   async function fetchForDate(dateStr) {
@@ -377,6 +414,78 @@ export default function AdminPanel({ apiKey }) {
               </div>
             )}
           </div>
+        )}
+      </div>
+
+      {/* ── API Key Management ───────────────────────────────────── */}
+      <div style={card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <h3 style={sectionTitle}>🔑 API Key Management</h3>
+          <button style={btnSecondary} onClick={loadApiKeys} disabled={apiKeysLoading}>
+            {apiKeysLoading ? 'Loading…' : '↻ Refresh'}
+          </button>
+        </div>
+        <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 0, marginBottom: 16 }}>
+          Keys are saved to <code>.env</code> and take effect immediately — no restart needed.
+        </p>
+
+        {apiKeys ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {apiKeys.keys.map(k => {
+              const draft   = keyDrafts[k.name] ?? ''
+              const saving  = keySaving[k.name] ?? false
+              const msg     = keyMessages[k.name]
+              return (
+                <div key={k.name} style={{
+                  background: '#f8fafc', border: '1px solid #e2e8f0',
+                  borderRadius: 10, padding: '12px 16px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a' }}>{k.label}</span>
+                    {k.required && <span style={{ ...badge('yellow'), fontSize: '0.7rem' }}>Required</span>}
+                    <span style={{ ...badge(k.is_set ? 'green' : 'red'), fontSize: '0.7rem' }}>
+                      {k.is_set ? '● Set' : '○ Not set'}
+                    </span>
+                    {k.is_set && (
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#64748b', letterSpacing: 1 }}>
+                        {k.masked}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: 8 }}>{k.description}</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="password"
+                      placeholder={k.is_set ? 'Enter new value to update…' : 'Enter value…'}
+                      value={draft}
+                      onChange={e => setKeyDrafts(d => ({ ...d, [k.name]: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter' && draft.trim()) saveApiKey(k.name) }}
+                      style={{ ...inputStyle, flex: 1, fontFamily: 'monospace', fontSize: '0.85rem' }}
+                    />
+                    <button
+                      style={{ ...btnPrimary, padding: '8px 18px', opacity: draft.trim() ? 1 : 0.45 }}
+                      onClick={() => saveApiKey(k.name)}
+                      disabled={saving || !draft.trim()}
+                    >
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                  {msg && (
+                    <div style={{
+                      marginTop: 6, fontSize: '0.8rem', fontWeight: 600,
+                      color: msg.ok ? '#15803d' : '#b91c1c',
+                    }}>
+                      {msg.msg}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p style={{ color: '#94a3b8', fontSize: '0.88rem', margin: 0 }}>
+            {apiKeysLoading ? 'Loading keys…' : 'Click Refresh to load API key status.'}
+          </p>
         )}
       </div>
 

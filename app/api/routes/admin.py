@@ -83,6 +83,154 @@ def _verify_key(api_key: str):
 
 
 # ======================================================================
+# API KEY MANAGEMENT
+# ======================================================================
+
+_ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".env")
+
+# Registry of every configurable key exposed through the admin UI
+_KEY_REGISTRY = [
+    {
+        "name":        "FOOTBALL_DATA_API_KEY",
+        "label":       "Football-Data.org",
+        "description": "Fetches scheduled fixtures and match history",
+        "required":    True,
+    },
+    {
+        "name":        "ODDS_API_KEY",
+        "label":       "The Odds API",
+        "description": "Live betting odds and market data (also readable as THE_ODDS_API_KEY)",
+        "required":    True,
+    },
+    {
+        "name":        "TELEGRAM_BOT_TOKEN",
+        "label":       "Telegram Bot Token",
+        "description": "Sends alerts and accumulators via Telegram",
+        "required":    False,
+    },
+    {
+        "name":        "TELEGRAM_CHAT_ID",
+        "label":       "Telegram Chat / Channel ID",
+        "description": "Target chat or channel for Telegram messages",
+        "required":    False,
+    },
+    {
+        "name":        "BZZOIRO_API_KEY",
+        "label":       "Bzzoiro AI Feed",
+        "description": "Free AI predictions from sports.bzzoiro.com",
+        "required":    False,
+    },
+    {
+        "name":        "SPORTBOT_API_KEY",
+        "label":       "SportBot AI Feed",
+        "description": "Free-tier AI predictions from sportbot.ai",
+        "required":    False,
+    },
+    {
+        "name":        "API_KEY",
+        "label":       "Admin API Key",
+        "description": "Master key used to authenticate all admin endpoints",
+        "required":    True,
+    },
+]
+
+
+def _mask(value: str) -> str:
+    """Return a safely masked version of an API key."""
+    if not value:
+        return ""
+    if len(value) <= 4:
+        return "••••"
+    return "•" * min(len(value) - 4, 24) + value[-4:]
+
+
+def _write_env(key: str, value: str) -> None:
+    """Persist key=value to the .env file AND update os.environ immediately."""
+    os.environ[key] = value
+    try:
+        env_path = _ENV_PATH
+        lines: list[str] = []
+        found = False
+        if os.path.exists(env_path):
+            with open(env_path, "r") as f:
+                lines = f.readlines()
+        new_lines = []
+        for line in lines:
+            if line.startswith(f"{key}=") or line.startswith(f"{key} ="):
+                new_lines.append(f'{key}="{value}"\n')
+                found = True
+            else:
+                new_lines.append(line)
+        if not found:
+            new_lines.append(f'{key}="{value}"\n')
+        with open(env_path, "w") as f:
+            f.writelines(new_lines)
+    except Exception as e:
+        logger.warning(f"Could not persist {key} to .env: {e}")
+
+
+class ApiKeyUpdate(BaseModel):
+    updates: dict  # {ENV_VAR_NAME: new_value, ...}
+
+
+@router.get("/api-keys")
+async def list_api_keys(api_key: str = Query(...)):
+    """
+    Return all configurable API keys with masked current values.
+    Never returns plaintext secrets.
+    """
+    _verify_key(api_key)
+    keys = []
+    for entry in _KEY_REGISTRY:
+        current = os.getenv(entry["name"], "")
+        keys.append({
+            "name":        entry["name"],
+            "label":       entry["label"],
+            "description": entry["description"],
+            "required":    entry["required"],
+            "is_set":      bool(current),
+            "masked":      _mask(current),
+        })
+    return {"keys": keys, "total": len(keys)}
+
+
+@router.post("/api-keys/update")
+async def update_api_keys(body: ApiKeyUpdate, api_key: str = Query(...)):
+    """
+    Update one or more API keys. Changes take effect immediately
+    (os.environ) and are persisted to .env for restart survival.
+    """
+    _verify_key(api_key)
+    allowed_names = {entry["name"] for entry in _KEY_REGISTRY}
+    results = {}
+    errors  = {}
+
+    for key_name, new_value in body.updates.items():
+        if key_name not in allowed_names:
+            errors[key_name] = "Not a recognised key name"
+            continue
+        if not isinstance(new_value, str):
+            errors[key_name] = "Value must be a string"
+            continue
+        new_value = new_value.strip()
+        if not new_value:
+            errors[key_name] = "Value cannot be empty"
+            continue
+        try:
+            _write_env(key_name, new_value)
+            results[key_name] = "updated"
+            logger.info(f"API key updated: {key_name}")
+        except Exception as e:
+            errors[key_name] = str(e)
+
+    return {
+        "updated": results,
+        "errors":  errors,
+        "message": f"{len(results)} key(s) updated successfully" + (f", {len(errors)} error(s)" if errors else ""),
+    }
+
+
+# ======================================================================
 # v2.2.0 — MODEL MANAGEMENT
 # ======================================================================
 
